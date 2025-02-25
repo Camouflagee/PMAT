@@ -21,12 +21,12 @@ def init_(m, gain=0.01, activate=False):
 
 class ScoringBlock(nn.Module):
 
-    def __init__(self, emb_dim, hid_dim, layer_dim):
+    def __init__(self, emb_dim, hid_dim, num_layers):
         super(ScoringBlock, self).__init__()
         self.mlp = nn.Sequential(
             nn.LayerNorm(emb_dim),
             init_(nn.Linear(emb_dim, hid_dim), activate=True), nn.GELU(), nn.LayerNorm(hid_dim),
-            *[init_(nn.Linear(hid_dim, hid_dim), activate=True), nn.GELU(), nn.LayerNorm(hid_dim)] * (layer_dim - 1),
+            *[init_(nn.Linear(hid_dim, hid_dim), activate=True), nn.GELU(), nn.LayerNorm(hid_dim)] * (num_layers - 1),
             init_(nn.Linear(hid_dim, 1))
         )
         self.output = nn.Sigmoid()
@@ -41,7 +41,7 @@ def sample_seq_by_score_batched(batched_scores, deterministic):
     batch_size, seq_length = batched_scores.size()
     
     sampled_seq_batch = torch.zeros((batch_size, seq_length), dtype=torch.long, device=batched_scores.device)    
-    log_sampled_seq_prob_batch = torch.zeros(batch_size, dtype=torch.float, device=batched_scores.device)
+    sampled_seq_log_prob_batch = torch.zeros(batch_size, dtype=torch.float, device=batched_scores.device)
     
     remaining = torch.ones((batch_size, seq_length), dtype=torch.bool,device=batched_scores.device)
     current_scores = batched_scores.clone()
@@ -54,30 +54,30 @@ def sample_seq_by_score_batched(batched_scores, deterministic):
         
         sampled_indices = dist.probs.argmax(dim=-1) if deterministic else dist.sample()
         sampled_seq_batch[:, item] = sampled_indices
-        log_sampled_seq_prob_batch += dist.log_prob(sampled_indices)
+        sampled_seq_log_prob_batch += dist.log_prob(sampled_indices)
         
         remaining[torch.arange(batch_size), sampled_indices] = False
     
-    return sampled_seq_batch, log_sampled_seq_prob_batch
+    return sampled_seq_batch, sampled_seq_log_prob_batch
 
 
-def cal_seq_logprob_batched(batched_scores, batch_seqs):
+def cal_seq_logprob_batched(batched_scores, batched_seqs):
     batch_size, seq_length = batched_scores.size()
     
     remaining = torch.ones((batch_size, seq_length), dtype=torch.bool,device=batched_scores.device)
     current_scores = batched_scores.clone()
-    log_probs_of_seqs = torch.zeros((batch_size, 1), dtype=torch.float, device=batched_scores.device)
+    seq_log_probs = torch.zeros((batch_size, 1), dtype=torch.float, device=batched_scores.device)
     
     for item in range(seq_length):
         masked_scores = current_scores * remaining.float()
         probabilities = masked_scores / (masked_scores.sum(dim=1, keepdim=True))
 
         dist = Categorical(probs=probabilities)
-        log_probs_of_seqs += dist.log_prob(batch_seqs[:, item]).unsqueeze(1)
+        seq_log_probs += dist.log_prob(batched_seqs[:, item]).unsqueeze(1)
 
-        remaining[torch.arange(batch_size), batch_seqs[:, item].long()] = False
+        remaining[torch.arange(batch_size), batched_seqs[:, item].long()] = False
         
-    return log_probs_of_seqs
+    return seq_log_probs
 
 
 class SelfAttention(nn.Module):
@@ -304,7 +304,7 @@ class MultiAgentTransformer(nn.Module):
         self.encoder = Encoder(state_dim, obs_dim, n_block, n_embd, n_head, n_agent, encode_state)
         self.decoder = Decoder(obs_dim, action_dim, n_block, n_embd, n_head, n_agent,
                                self.action_type, dec_actor=dec_actor, share_actor=share_actor)
-        self.scorer = ScoringBlock(emb_dim=n_embd, hid_dim=64, layer_dim=n_ranking_layer)
+        self.scorer = ScoringBlock(emb_dim=n_embd, hid_dim=64, num_layers=n_ranking_layer)
         self.to(device)
 
     def zero_std(self):
@@ -331,8 +331,8 @@ class MultiAgentTransformer(nn.Module):
         batch_size = np.shape(state)[0]
         v_loc, obs_rep = self.encoder(state, obs)
         rep_scores = self.scorer(obs_rep).squeeze(-1)
-        seq_log = cal_seq_logprob_batched(rep_scores, seq.squeeze(0))
-        seq_entropy = torch.zeros_like(seq_log)
+        seq_logprob = cal_seq_logprob_batched(rep_scores, seq.squeeze(0))
+        seq_entropy = torch.zeros_like(seq_logprob)
                 
         if self.action_type == 'Discrete':
             action = action.long()
@@ -342,7 +342,7 @@ class MultiAgentTransformer(nn.Module):
             action_log, entropy = continuous_parallel_act(self.decoder, obs_rep, obs, action, batch_size,
                                                           self.n_agent, self.action_dim, self.tpdv)
 
-        return action_log, v_loc, entropy, seq_log, seq_entropy
+        return action_log, v_loc, entropy, seq_logprob, seq_entropy
 
     def get_actions(self, state, obs, available_actions=None, deterministic=False):
         # state unused
@@ -358,9 +358,9 @@ class MultiAgentTransformer(nn.Module):
         v_loc, obs_rep = self.encoder(state, obs)
 
         rep_scores = self.scorer(obs_rep).squeeze(-1)
-        sampled_seq_batch, log_sampled_seq_prob_batch = sample_seq_by_score_batched(rep_scores, deterministic)
+        sampled_seq_batch, sampled_seq_log_prob_batch = sample_seq_by_score_batched(rep_scores, deterministic)
         sampled_seq = sampled_seq_batch
-        sampled_seq_log_prob = log_sampled_seq_prob_batch        
+        sampled_seq_log_prob = sampled_seq_log_prob_batch        
         
         reindexed_obs_rep = reindex_tensor(obs_rep, sampled_seq_batch)
         if available_actions is not None:

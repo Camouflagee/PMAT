@@ -17,14 +17,14 @@ def check(input):
     output = torch.from_numpy(input) if type(input) == np.ndarray else input
     return output
 
-def reindex_tensor(origin_tensor, index_seq):
-    origin_tensor = origin_tensor.to(index_seq.device)
-    expanded_index_tensor = index_seq.unsqueeze(-1).expand(-1, -1, origin_tensor.size(-1))
-    reindexed_tensor = torch.gather(origin_tensor, dim=1, index=expanded_index_tensor)
+def reindex_tensor(input_tensor, index_tensor):
+    input_tensor = input_tensor.to(index_tensor.device)
+    expanded_indices = index_tensor.unsqueeze(-1).expand(-1, -1, input_tensor.size(-1))
+    reindexed_tensor = torch.gather(input_tensor, dim=1, index=expanded_indices)
     return reindexed_tensor
 
-def cal_restore_index(index_seq_tensor):
-    index_range = torch.arange(index_seq_tensor.size(1)).repeat(index_seq_tensor.size(0), 1).to(index_seq_tensor.device)
-    sorted_indices = index_seq_tensor.argsort(dim=1)
-    restore_index = index_range.gather(1, sorted_indices)
+def cal_restore_index(index_tensor):
+    index_range = torch.arange(index_tensor.size(1)).repeat(index_tensor.size(0), 1).to(index_tensor.device)
+    argsort_indices = index_tensor.argsort(dim=1)
+    restore_index = index_range.gather(1, argsort_indices)
     return restore_index

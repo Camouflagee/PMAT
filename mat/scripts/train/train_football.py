@@ -88,18 +88,11 @@ def main(args):
     all_args = parse_args(args, parser)
     print("mumu config: ", all_args)
 
-    if all_args.algorithm_name == "rmappo":
-        all_args.use_recurrent_policy = True
-        assert (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy), ("check recurrent policy!")
-    elif all_args.algorithm_name == "mappo" or all_args.algorithm_name == "mat" or all_args.algorithm_name == "mat_dec":
+    if all_args.algorithm_name == "pmat":
         assert (all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False), (
             "check recurrent policy!")
     else:
         raise NotImplementedError
-
-    if all_args.algorithm_name == "mat_dec":
-        all_args.dec_actor = True
-        all_args.share_actor = True
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():

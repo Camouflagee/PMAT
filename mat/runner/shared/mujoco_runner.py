@@ -39,7 +39,7 @@ class MujocoRunner(Runner):
 
             for step in range(self.episode_length):
                 # Sample actions
-                values, actions, action_log_probs, rnn_states, rnn_states_critic = self.collect(step)
+                values, actions, action_log_probs, seq_log_probs, seqs, rnn_states, rnn_states_critic = self.collect(step)
                 # actions = faulty_action(actions, self.all_args.faulty_node)
                 #
                 # # Obser reward and next obs
@@ -59,7 +59,7 @@ class MujocoRunner(Runner):
                         train_episode_rewards[t] = 0
 
                 data = obs, share_obs, rewards, dones, infos, available_actions, \
-                       values, actions, action_log_probs, \
+                       values, actions, action_log_probs, seq_log_probs, seqs, \
                        rnn_states, rnn_states_critic
 
                 # insert data into buffer
@@ -116,7 +116,7 @@ class MujocoRunner(Runner):
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
-        value, action, action_log_prob, rnn_state, rnn_state_critic \
+        value, action, action_log_prob, seq_log_prob, seq, rnn_state, rnn_state_critic \
             = self.trainer.policy.get_actions(np.concatenate(self.buffer.share_obs[step]),
                                             np.concatenate(self.buffer.obs[step]),
                                             np.concatenate(self.buffer.rnn_states[step]),
@@ -126,14 +126,16 @@ class MujocoRunner(Runner):
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
         action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
+        seq_log_probs = np.array(np.split(_t2n(seq_log_prob), self.n_rollout_threads))
+        seqs = np.array(np.split(_t2n(seq), self.n_rollout_threads))
         rnn_states = np.array(np.split(_t2n(rnn_state), self.n_rollout_threads))
         rnn_states_critic = np.array(np.split(_t2n(rnn_state_critic), self.n_rollout_threads))
 
-        return values, actions, action_log_probs, rnn_states, rnn_states_critic
+        return values, actions, action_log_probs, seq_log_probs, seqs, rnn_states, rnn_states_critic
 
     def insert(self, data):
         obs, share_obs, rewards, dones, infos, available_actions, \
-        values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+        values, actions, action_log_probs, seq_log_probs, seqs, rnn_states, rnn_states_critic = data
 
         dones_env = np.all(dones, axis=1)
 
@@ -153,7 +155,7 @@ class MujocoRunner(Runner):
             share_obs = obs
 
         self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
-                           actions, action_log_probs, values, rewards, masks, None, active_masks,
+                           actions, action_log_probs, seq_log_probs, seqs, values, rewards, masks, None, active_masks,
                            None)
 
     def log_train(self, train_infos, total_num_steps):
