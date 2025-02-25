@@ -20,7 +20,7 @@ Just follow the instructions in https://github.com/oxwhirl/smac to setup a SMAC 
 
 Just follow the instructions in https://github.com/google-research/football to setup a GRF environment.
 
-#### Multi-agent MuJoCo (MA MuJoCo)
+#### Multi-Agent MuJoCo (MA MuJoCo)
 
 Just follow the instructions in https://github.com/openai/mujoco-py and https://github.com/schroederdewitt/multiagent_mujoco to setup a MA MuJoCo environment.
 
