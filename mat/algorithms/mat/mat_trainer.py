@@ -123,11 +123,11 @@ class MATTrainer:
                                                                               rnn_states_critic_batch, 
                                                                               actions_batch,
                                                                               seqs_batch, 
-                                                                              masks_batch, 
+                                                                              masks_batch,
                                                                               available_actions_batch,
                                                                               active_masks_batch)
         # actor update
-        imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
+        imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch) # imp = importance 重要性采样权重
 
         surr1 = imp_weights * adv_targ
         surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param, 1.0 + self.clip_param) * adv_targ
